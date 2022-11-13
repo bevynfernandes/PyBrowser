@@ -41,7 +41,7 @@
         "title": null,
         "theme": "dark",
         "api": "https://api.chattingapp.repl.co/pyb",
-        "connect": false,
+        "connect": true,
         "adblock": true
     },
     "info": {

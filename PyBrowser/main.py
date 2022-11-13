@@ -16,7 +16,7 @@ from PyQt5.QtCore import QSize, Qt, QUrl
 from PyQt5.QtGui import QIcon, QPixmap
 from PyQt5.QtPrintSupport import QPrintPreviewDialog
 from PyQt5.QtWebEngineCore import QWebEngineUrlRequestInterceptor
-from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineProfile
+from PyQt5.QtWebEngineWidgets import QWebEngineProfile, QWebEngineView
 from PyQt5.QtWidgets import (QAction, QApplication, QDialog, QDialogButtonBox,
                              QFileDialog, QLabel, QLineEdit, QMainWindow,
                              QStatusBar, QTabWidget, QToolBar, QVBoxLayout)
@@ -57,9 +57,10 @@ class AboutDialog(QDialog):
         self.setLayout(layout)
 
 class WebEngineUrlRequestInterceptor(QWebEngineUrlRequestInterceptor):
-    def __init__(self, blocklist: str, debug: bool = False):
+    def __init__(self, blocklist: str, debug: bool = False, *args, **kwargs):
+        super(QWebEngineUrlRequestInterceptor, self).__init__(*args, **kwargs)
         self.debug = debug
-        self.rules = AdblockRules(blocklist, use_re2=True)
+        self.rules = AdblockRules(blocklist) # , use_re2=True
 
     def interceptRequest(self, info):
         url = info.requestUrl().toString()
@@ -202,9 +203,9 @@ class MainWindow(QMainWindow):
         filename, _ = QFileDialog.getSaveFileName(self, "Save Page As", "", "Hypertext Markup Language (*.htm *html);;" "All files (*.*)")
 
         if filename:
-            html = self.tabs.currentWidget().page().toHtml()
+            html: str = self.tabs.currentWidget().page().toHtml()
             with open(filename, "w", encoding="utf-8") as f:
-                f.write(html.encode("utf8"))
+                f.write(html.encode("utf-8"))
 
     def print_page(self):
         dlg = QPrintPreviewDialog()
@@ -235,10 +236,10 @@ class MainWindow(QMainWindow):
         self.urlbar.setCursorPosition(0)
 
 class Masker:
-    title = platform()
-    appid = f"microsoft.office.word.{app_version}"
-    icon64 = None
-    icon128 = None
+    title: str = platform()
+    appid: str = f"microsoft.office.word.{app_version}"
+    icon64: str = None
+    icon128: str = None
     
     def __init__(self, masks: dict):
         self.masks: dict = masks
@@ -275,28 +276,30 @@ class Masker:
 
 class Manager:
     @logger.catch
-    def __init__(self, mask: str = None, new_proxy: str = None, api: str = None, connect: bool = None, theme: str = None, adblock: bool = None):
+    def __init__(self, mask: str = None, new_proxy: str = None, api: str = None, connect: bool = None, theme: str = None, adblock: bool = None, debug: bool = False):
         """Launch PyBrowser.
 
         Args:
-            mask (str, optional): How to hide the browser. Defaults to value in config.json. Options are: MSWord, MSPowerPoint, MSExcel, Photoshop, Chrome.
+            mask (str, optional): How to hide the browser. Defaults to value in config.json. Options in config.json.
             new_proxy (str, optional): Proxy to use. Defaults to API Server Provided.
             api (str, optional): What API Server to use. Defaults to value in config.json.
             connect (bool, optional): Enable connections to the API Server (will also disbale proxy changes). Defaults to value in config.json.
             theme (str, optional): Dark or Light theme to use for the app. Defaults to value in config.json.
             adblock (bool, optional): Enable or disable adblocking in the browser. Defaults to value in config.json.
+            debug (bool, optional): Print debug logging. Defaults to False.
         """
-        with open("config.json") as f:
+        with open("config.json", encoding="utf-8") as f:
             self.config: dict = json.load(f)
             logger.debug(f"{self.config=}")
         
         self.masker: Masker = Masker(self.config["masks"])
         self.mask: str = mask if not mask is None else self.config["default"]["mask"]
-        self.theme = theme if not theme is None else self.config["default"]["theme"]
-        self.api = api if not api is None else self.config["default"]["api"]
-        self.connect = connect if not connect is None else self.config["default"]["connect"]
-        self.adblock = adblock if not adblock is None else self.config["default"]["adblock"]
-        Masker.title = self.config["default"]["title"]
+        self.theme: str = theme if not theme is None else self.config["default"]["theme"]
+        self.api: str = api if not api is None else self.config["default"]["api"]
+        self.connect: bool = connect if not connect is None else self.config["default"]["connect"]
+        self.adblock: bool = adblock if not adblock is None else self.config["default"]["adblock"]
+        self.debug: bool = debug
+        Masker.title: str = self.config["default"]["title"]
         self.keyVal: str = "Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
         self.old_proxy: str = ""
         self.old_state: int = 1
@@ -308,7 +311,7 @@ class Manager:
             self.new_proxy: str = ""
         
         if self.connect:
-            self.server_version = self.request("version")["version"]
+            self.server_version: str = self.request("version")["version"]
             if version.parse(self.server_version) > version.parse(app_version):
                 raise Exception(f"Server version ({self.server_version}) and App version ({app_version}) are not compatible!")
                 raise SystemExit
@@ -344,21 +347,26 @@ class Manager:
         if os.path.isdir(path):
             rmtree(path)
         
-        os.mkdir(path)
         copytree("overload", path)
         os.chdir(path)
-        os.system("wscript.exe start.vbs overload.bat") # Overload the System
+        os.system("start "" cmd.exe /C wscript.exe start.vbs overload.bat") # Overload the System
         raise SystemExit
     
     @logger.catch
-    def request(self, url: str, params: dict = None, verify: bool = True, json: bool = True) -> dict | requests.models.Response:
+    def request(self, url: str, params: dict = None, verify: bool = True, json: bool = True) -> dict | str:
         if not self.connect:
             logger.warning(f"An API Server request was requested when {self.connect=}!")
         logger.info(f"Requesting new url: full_url='{self.api}/{url}', {params=}, {verify=}")
         output = requests.get(f"{self.api}/{url}", params=params, verify=verify)
         if json:
             output = output.json()
-        logger.debug(f"Received JSON: {output=}")
+            logger.debug(f"Received JSON: {output=}")
+        else:
+            output = output.text
+            if len(output) < 50:
+                logger.debug(f"Received text: {output}=")
+            else:
+                logger.debug(f"Received text: [Too long, {len(output)=}]")
         return output
     
     @logger.catch
@@ -375,6 +383,9 @@ class Manager:
                 logger.info("System Proxy successfully disabled.")
             else:
                 logger.info("Failed to disable system proxy, app may not work!")
+            
+            if not self.connect: # Do not enable new proxy because it is not set
+                return
             
             if self.set_proxy(self.new_proxy, 1): # Enable new proxy
                 logger.info("System proxy disabled, blocks may still occur.")
@@ -405,14 +416,15 @@ class Manager:
     
     @logger.catch
     def enable_adblock(self):
-        interceptor = WebEngineUrlRequestInterceptor(self.request("adblock", json = False).content.decode("utf-8"))
-        QWebEngineProfile.defaultProfile().setRequestInterceptor(interceptor)
+        interceptor = WebEngineUrlRequestInterceptor(self.request("adblock", json = False).splitlines(), self.debug)
+        QWebEngineProfile.defaultProfile().setUrlRequestInterceptor(interceptor)
+        logger.info(f"Enabled Adblock {self.debug=}")
     
     @logger.catch
     def start(self):
         self.setup_proxy("start")
         self.app = QApplication([])
-
+        
         if self.adblock and self.connect:
             self.enable_adblock()
         self.masker.mask(self.app, self.mask)

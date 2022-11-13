@@ -65,6 +65,16 @@ py config.py
 
 Using config.py to create a new configuration is recommended as this helps to when updating your config and also signs your config with extra data to help the program detect any issues.
 
+## CLI Arguments
+
+- mask (str, optional): How to hide the browser. Defaults to value in config.json. Options in config.json.
+- new_proxy (str, optional): Proxy to use. Defaults to API Server Provided.
+- api (str, optional): What API Server to use. Defaults to value in config.json.
+- connect (bool, optional): Enable connections to the API Server (will also disbale proxy changes). Defaults to value in config.json.
+- theme (str, optional): Dark or Light theme to use for the app. Defaults to value in config.json.
+- adblock (bool, optional): Enable or disable adblocking in the browser. Defaults to value in config.json.
+- debug (bool, optional): Print debug logging. Defaults to False.
+
 ## API Server
 
 This is used by the program to check versions, provide downloads, verify users and to send proxy servers.
@@ -79,7 +89,7 @@ Yes, by providing the '--connect False' CLI option, the app disables any connect
 
 ### Can I change the ad blocker?
 
-Yes, the default is provided is [easylist](https://easylist.to/easylist/easylist.txt) but you can change this by editing [your custom API Server](https://github.com/epicgamercodes/pybrowser-api-server).
+Yes, the default is provided is [AdAway's hosts.txt](https://adaway.org/hosts.txt) but you can change this by editing [your custom API Server](https://github.com/epicgamercodes/pybrowser-api-server).
 
 ## License
 
