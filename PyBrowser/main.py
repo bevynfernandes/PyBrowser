@@ -125,6 +125,7 @@ class MainWindow(QMainWindow):
         navtb.addAction(stop_btn)
 
         file_menu = self.menuBar().addMenu("&File")
+        tools_menu = self.menuBar().addMenu("&Tools")
 
         new_tab_action = QAction(QIcon(os.path.join("images", "ui-tab--plus.png")), "New Tab", self)
         new_tab_action.setStatusTip("Open a new tab")
@@ -145,6 +146,16 @@ class MainWindow(QMainWindow):
         print_action.setStatusTip("Print current page")
         print_action.triggered.connect(self.print_page)
         file_menu.addAction(print_action)
+
+        show_log_action = QAction(QIcon(os.path.join("images", "logs.png")), "Show Log...", self)
+        show_log_action.setStatusTip(f"Show {Masker.title} logs")
+        show_log_action.triggered.connect(lambda: self.add_new_tab(QUrl(f"{os.getcwd()}/PyBrowser.log".replace("\\", "/")), "PyBrowser.log"))
+        tools_menu.addAction(show_log_action)
+
+        show_config_action = QAction(QIcon(os.path.join("images", "json-file.png")), "Show Config...", self)
+        show_config_action.setStatusTip(f"Show config")
+        show_config_action.triggered.connect(lambda: self.add_new_tab(QUrl(f"{os.getcwd()}/config.json".replace("\\", "/")), "config.json"))
+        tools_menu.addAction(show_config_action)
 
         self.add_new_tab(QUrl("https://google.com"), "Homepage")
         self.show()
@@ -272,7 +283,6 @@ class Masker:
         
         Masker.icon64 = file64
         Masker.icon128 = file128
-
 
 class Manager:
     @logger.catch
