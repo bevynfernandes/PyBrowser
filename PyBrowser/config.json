@@ -42,7 +42,8 @@
         "theme": "dark",
         "api": "https://api.chattingapp.repl.co/pyb",
         "connect": true,
-        "adblock": true
+        "adblock": true,
+        "qapp_flags": []
     },
     "info": {
         "version": "1.0.0a",
