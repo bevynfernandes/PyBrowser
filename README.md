@@ -74,6 +74,7 @@ Using config.py to create a new configuration is recommended as this helps to wh
 - theme (str, optional): Dark or Light theme to use for the app. Defaults to value in config.json.
 - adblock (bool, optional): Enable or disable adblocking in the browser. Defaults to value in config.json.
 - debug (bool, optional): Print debug logging. Defaults to False.
+- qapp_flags (str, optional): Flags to pass to QApplication. Defaults to value in config.json.
 
 ## API Server
 
