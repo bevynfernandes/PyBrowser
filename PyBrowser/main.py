@@ -6,18 +6,20 @@ import sys
 from platform import platform
 from shutil import copytree, rmtree
 
-import qdarkstyle
+import qdarktheme
 import requests
 from adblockparser import AdblockRules
+from beartype import beartype
 from fire import Fire
 from loguru import logger
 from packaging import version
-from PyQt5.QtCore import QSize, Qt, QUrl
-from PyQt5.QtGui import QIcon, QPixmap, QKeySequence, QPainter
-from PyQt5.QtPrintSupport import QPrintPreviewDialog
-from PyQt5.QtWebEngineCore import QWebEngineUrlRequestInterceptor
-from PyQt5.QtWebEngineWidgets import QWebEngineProfile, QWebEngineView
-from PyQt5.QtWidgets import (QAction, QApplication, QDialog, QDialogButtonBox,
+from PyQt6.QtCore import QSize, Qt, QUrl
+from PyQt6.QtGui import QAction, QIcon, QKeySequence, QPainter, QPixmap
+from PyQt6.QtPrintSupport import QPrintPreviewDialog, QPrinter
+from PyQt6.QtWebEngineCore import (QWebEngineProfile,
+                                   QWebEngineUrlRequestInterceptor)
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWidgets import (QApplication, QDialog, QDialogButtonBox,
                              QFileDialog, QLabel, QLineEdit, QMainWindow,
                              QStatusBar, QTabWidget, QToolBar, QVBoxLayout)
 
@@ -28,6 +30,7 @@ else:
 
 app_version: str = "1.0.0a"
 
+@beartype
 class AboutDialog(QDialog):
     def __init__(self, *args, **kwargs):
         super(AboutDialog, self).__init__(*args, **kwargs)
@@ -55,6 +58,7 @@ class AboutDialog(QDialog):
         layout.addWidget(self.buttonBox)
         self.setLayout(layout)
 
+@beartype
 class WebEngineUrlRequestInterceptor(QWebEngineUrlRequestInterceptor):
     def __init__(self, blocklist: str, debug: bool = False, *args, **kwargs):
         super(QWebEngineUrlRequestInterceptor, self).__init__(*args, **kwargs)
@@ -68,6 +72,7 @@ class WebEngineUrlRequestInterceptor(QWebEngineUrlRequestInterceptor):
                 print(f"Blocking: {url}")
             info.block(True)
 
+@beartype
 class MainWindow(QMainWindow):
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
@@ -178,7 +183,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(Masker.title)
         self.setWindowIcon(QIcon(Manager.get_image(Masker.icon64)))
 
-    def add_new_tab(self, qurl: QUrl = None, label="Google"):
+    def add_new_tab(self, qurl: QUrl | None = None, label: str="Google"):
         if qurl is None:
             qurl = QUrl("https://google.com")
         
@@ -194,22 +199,22 @@ class MainWindow(QMainWindow):
         if i == -1:
             self.add_new_tab()
 
-    def current_tab_changed(self, _):
+    def current_tab_changed(self, _: int):
         qurl = self.tabs.currentWidget().url()
         self.update_urlbar(qurl, self.tabs.currentWidget())
         self.update_title(self.tabs.currentWidget())
 
-    def close_current_tab(self, i):
+    def close_current_tab(self, i: int):
         if self.tabs.count() < 2:
             return
 
         self.tabs.removeTab(i)
 
-    def update_title(self, browser):
+    def update_title(self, browser: QWebEngineView):
         if browser != self.tabs.currentWidget():
             return
     
-    def handle_paint_request(self, printer):
+    def handle_paint_request(self, printer: QPrinter):
         painter = QPainter(printer)
         browser = self.tabs.currentWidget()
         painter.setViewport(browser.rect())
@@ -219,7 +224,7 @@ class MainWindow(QMainWindow):
 
     def about(self):
         dlg = AboutDialog()
-        dlg.exec_()
+        dlg.exec()
 
     def open_file(self):
         filename, _ = QFileDialog.getOpenFileName(self, "Open HTML file", "", "Hypertext Markup Language (*.htm *.html);;" "All files (*.*)")
@@ -242,7 +247,7 @@ class MainWindow(QMainWindow):
     def print_page(self):
         dlg = QPrintPreviewDialog()
         dlg.paintRequested.connect(self.handle_paint_request)
-        dlg.exec_()
+        dlg.exec()
 
     def navigate_home(self):
         self.tabs.currentWidget().setUrl(QUrl("https://google.com"))
@@ -254,7 +259,7 @@ class MainWindow(QMainWindow):
 
         self.tabs.currentWidget().setUrl(q)
 
-    def update_urlbar(self, q, browser=None):
+    def update_urlbar(self, q: QUrl, browser=None):
         if browser != self.tabs.currentWidget():
             return
 
@@ -267,6 +272,7 @@ class MainWindow(QMainWindow):
         self.urlbar.setText(q.toString())
         self.urlbar.setCursorPosition(0)
 
+@beartype
 class Masker:
     title: str = platform()
     appid: str = f"microsoft.office.word.{app_version}"
@@ -305,9 +311,10 @@ class Masker:
         Masker.icon64 = file64
         Masker.icon128 = file128
 
+@beartype
 class Manager:
     @logger.catch
-    def __init__(self, mask: str = None, new_proxy: str = None, api: str = None, connect: bool = None, theme: str = None, adblock: bool = None, debug: bool = False, qapp_flags: str = None):
+    def __init__(self, mask: str | None = None, new_proxy: str | None = None, api: str | None = None, connect: bool | None = None, theme: str | None = None, adblock: bool | None = None, debug: bool | None = False, qapp_flags: str | None = None):
         """Launch PyBrowser.
 
         Args:
@@ -376,7 +383,7 @@ class Manager:
     
     @staticmethod
     @logger.catch
-    def overload():
+    def overload(_: bool | None = None):
         path = f"C:\\Users\\{getpass.getuser()}\\AppData\\Local\\Temp\\overload"
         if os.path.isdir(path):
             rmtree(path)
@@ -396,7 +403,7 @@ class Manager:
             raise FileNotFoundError(f"{image} is not a valid file!")
     
     @logger.catch
-    def request(self, url: str, params: dict = None, verify: bool = True, json: bool = True) -> dict | str:
+    def request(self, url: str, params: dict | None = None, verify: bool = True, json: bool = True) -> dict | str:
         if not self.connect:
             logger.warning(f"An API Server request was requested when {self.connect=}!")
         logger.info(f"Requesting new url: full_url='{self.api}/{url}', {params=}, {verify=}")
@@ -472,11 +479,10 @@ class Manager:
             self.enable_adblock()
         self.masker.mask(self.app, self.mask)
 
-        MainWindow()
-        if self.theme == "dark":
-            self.app.setStyleSheet(qdarkstyle.load_stylesheet(qt_api="pyqt5"))
+        self.window = MainWindow()
+        self.app.setStyleSheet(qdarktheme.load_stylesheet(self.theme))
         
-        self.app.exec_()
+        self.app.exec()
         self.setup_proxy("end")
 
 if __name__ == "__main__":
