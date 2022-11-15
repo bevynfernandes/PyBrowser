@@ -30,7 +30,7 @@ def main():
 
 	config.smain(f"{cwd}/config.json")
 	print(f"{vars=}")
-	command = f'pyinstaller --noconfirm --onefile --{vars["app_type"]} --icon "{cwd}/images/icon.ico" --name "{vars["name"]}" --clean --key "{secrets.token_urlsafe()}" --add-data "{cwd}/images;images/" --add-data "{cwd}/overload;overload/" --add-data "{cwd}/config.json;." "{cwd}/main.py"'
+	command = f'py -m PyInstaller --noconfirm --onefile --{vars["app_type"]} --icon "{cwd}/images/icon.ico" --name "{vars["name"]}" --clean --key "{secrets.token_urlsafe()}" --add-data "{cwd}/images;images/" --add-data "{cwd}/overload;overload/" --add-data "{cwd}/config.json;." "{cwd}/main.py"'
 
 	os.system(command)
 	if clean:
