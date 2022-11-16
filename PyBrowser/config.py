@@ -1,5 +1,6 @@
-import json
 import getpass
+import json
+
 from packaging import version
 
 try:
@@ -53,10 +54,11 @@ data = {
         "api": "https://api.chattingapp.repl.co/pyb",
         "connect": True,
         "adblock": True,
+        "qapp_flags": ["--enable-logging --log-level=3"],
     },
 }
 
-def smain():
+def smain(path: str = "config.json"):
     if not main is None:
         aversion: str = main.app_version
     else:
@@ -71,7 +73,7 @@ def smain():
     data["info"] = {"version": aversion, "creator": getpass.getuser()}
     
     print("Writting config...")
-    with open("config.json", "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
     
     print("Config written, see ./config.json for the results!")

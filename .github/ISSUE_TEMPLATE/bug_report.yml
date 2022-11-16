@@ -48,5 +48,5 @@ body:
 
         Tip: You can attach image(s) or log file(s) by clicking this area to highlight it and then dragging files in.
       placeholder: |
-        - Copy the `PyBrowser.log` files from the running directory.
+        - Copy `PyBrowser.log` from the running directory.
         - Drag and drop them into this text area.

@@ -5,19 +5,23 @@ import os
 import sys
 from platform import platform
 from shutil import copytree, rmtree
+from urllib.parse import urlparse
 
-import qdarkstyle
+import qdarktheme
 import requests
 from adblockparser import AdblockRules
+from beartype import beartype
 from fire import Fire
 from loguru import logger
 from packaging import version
-from PyQt5.QtCore import QSize, Qt, QUrl
-from PyQt5.QtGui import QIcon, QPixmap
-from PyQt5.QtPrintSupport import QPrintPreviewDialog
-from PyQt5.QtWebEngineCore import QWebEngineUrlRequestInterceptor
-from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineProfile
-from PyQt5.QtWidgets import (QAction, QApplication, QDialog, QDialogButtonBox,
+from PyQt6.QtCore import QSize, Qt, QUrl
+from PyQt6.QtGui import QAction, QIcon, QKeySequence, QPainter, QPixmap
+from PyQt6.QtPrintSupport import QPrinter, QPrintPreviewDialog
+from PyQt6.QtWebEngineCore import (QWebEngineDownloadRequest,
+                                   QWebEngineProfile,
+                                   QWebEngineUrlRequestInterceptor)
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWidgets import (QApplication, QDialog, QDialogButtonBox,
                              QFileDialog, QLabel, QLineEdit, QMainWindow,
                              QStatusBar, QTabWidget, QToolBar, QVBoxLayout)
 
@@ -26,14 +30,14 @@ if os.name == "nt":
 else:
     winreg = None
 
-logger.add("PyBrowser.log", retention="1 day", backtrace=True, diagnose=True)
 app_version: str = "1.0.0a"
 
+@beartype
 class AboutDialog(QDialog):
     def __init__(self, *args, **kwargs):
         super(AboutDialog, self).__init__(*args, **kwargs)
 
-        QBtn = QDialogButtonBox.Ok  # No cancel
+        QBtn = QDialogButtonBox.Ok
         self.buttonBox = QDialogButtonBox(QBtn)
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
@@ -46,7 +50,7 @@ class AboutDialog(QDialog):
         layout.addWidget(title)
 
         logo = QLabel()
-        logo.setPixmap(QPixmap(os.path.join("images", Masker.icon128)))
+        logo.setPixmap(QPixmap(Manager.get_image(Masker.icon128)))
         layout.addWidget(logo)
         layout.addWidget(QLabel(app_version))
 
@@ -56,18 +60,21 @@ class AboutDialog(QDialog):
         layout.addWidget(self.buttonBox)
         self.setLayout(layout)
 
+@beartype
 class WebEngineUrlRequestInterceptor(QWebEngineUrlRequestInterceptor):
-    def __init__(self, blocklist: str, debug: bool = False):
+    def __init__(self, blocklist: str, debug: bool = False, *args, **kwargs):
+        super(QWebEngineUrlRequestInterceptor, self).__init__(*args, **kwargs)
         self.debug = debug
-        self.rules = AdblockRules(blocklist, use_re2=True)
+        self.rules = AdblockRules(blocklist) # , use_re2=True
 
     def interceptRequest(self, info):
         url = info.requestUrl().toString()
         if self.rules.should_block(url, {"third-party": True}):
             if self.debug:
-                print(f"Blocking: {url}")
+                logger.info(f"Blocking: {url}")
             info.block(True)
 
+@beartype
 class MainWindow(QMainWindow):
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
@@ -88,69 +95,97 @@ class MainWindow(QMainWindow):
         navtb.setIconSize(QSize(16, 16))
         self.addToolBar(navtb)
 
-        back_btn = QAction(QIcon(os.path.join("images", "arrow-180.png")), "Back", self)
+        back_btn = QAction(QIcon(Manager.get_image("arrow-180.png")), "Back", self)
         back_btn.setStatusTip("Back to previous page")
         back_btn.triggered.connect(lambda: self.tabs.currentWidget().back())
+        back_btn.setShortcut(QKeySequence("Alt+Left"))
         navtb.addAction(back_btn)
 
-        next_btn = QAction(QIcon(os.path.join("images", "arrow-000.png")), "Forward", self)
+        next_btn = QAction(QIcon(Manager.get_image("arrow-000.png")), "Forward", self)
         next_btn.setStatusTip("Forward to next page")
         next_btn.triggered.connect(lambda: self.tabs.currentWidget().forward())
+        next_btn.setShortcut(QKeySequence("Alt+Right"))
         navtb.addAction(next_btn)
 
-        reload_btn = QAction(QIcon(os.path.join("images", "arrow-circle-315.png")), "Reload", self)
+        reload_btn = QAction(QIcon(Manager.get_image("arrow-circle-315.png")), "Reload", self)
         reload_btn.setStatusTip("Reload page")
         reload_btn.triggered.connect(lambda: self.tabs.currentWidget().reload())
+        reload_btn.setShortcut(QKeySequence("Ctrl+R"))
         navtb.addAction(reload_btn)
 
-        home_btn = QAction(QIcon(os.path.join("images", "home.png")), "Home", self)
+        home_btn = QAction(QIcon(Manager.get_image("home.png")), "Home", self)
         home_btn.setStatusTip("Go home")
         home_btn.triggered.connect(self.navigate_home)
+        home_btn.setShortcut(QKeySequence("Ctrl+H"))
         navtb.addAction(home_btn)
 
         navtb.addSeparator()
 
         self.httpsicon = QLabel()
-        self.httpsicon.setPixmap(QPixmap(os.path.join("images", "lock-nossl.png")))
+        self.httpsicon.setPixmap(QPixmap(Manager.get_image("lock-nossl.png")))
         navtb.addWidget(self.httpsicon)
 
         self.urlbar = QLineEdit()
         self.urlbar.returnPressed.connect(self.navigate_to_url)
         navtb.addWidget(self.urlbar)
 
-        stop_btn = QAction(QIcon(os.path.join("images", "cross-circle.png")), "Stop", self)
+        stop_btn = QAction(QIcon(Manager.get_image("cross-circle.png")), "Stop", self)
         stop_btn.setStatusTip("Stop loading current page")
         stop_btn.triggered.connect(lambda: self.tabs.currentWidget().stop())
+        stop_btn.setShortcut(QKeySequence("Esc"))
         navtb.addAction(stop_btn)
 
-        file_menu = self.menuBar().addMenu("&File")
+        tab_menu = self.menuBar().addMenu("&Tab")
+        tools_menu = self.menuBar().addMenu("&Tools")
 
-        new_tab_action = QAction(QIcon(os.path.join("images", "ui-tab--plus.png")), "New Tab", self)
+        new_tab_action = QAction(QIcon(Manager.get_image("ui-tab--plus.png")), "New Tab", self)
         new_tab_action.setStatusTip("Open a new tab")
         new_tab_action.triggered.connect(lambda _: self.add_new_tab())
-        file_menu.addAction(new_tab_action)
+        new_tab_action.setShortcut(QKeySequence("Ctrl+T"))
+        tab_menu.addAction(new_tab_action)
 
-        open_file_action = QAction(QIcon(os.path.join("images", "disk--arrow.png")), "Open file...", self)
+        open_file_action = QAction(QIcon(Manager.get_image("disk--arrow.png")), "Open file...", self)
         open_file_action.setStatusTip("Open HTML file")
         open_file_action.triggered.connect(self.open_file)
-        file_menu.addAction(open_file_action)
+        tab_menu.addAction(open_file_action)
 
-        save_file_action = QAction(QIcon(os.path.join("images", "disk--pencil.png")), "Save Page As...", self)
+        save_file_action = QAction(QIcon(Manager.get_image("disk--pencil.png")), "Save Page As...", self)
         save_file_action.setStatusTip("Save current page to HTML file")
         save_file_action.triggered.connect(self.save_file)
-        file_menu.addAction(save_file_action)
+        tab_menu.addAction(save_file_action)
 
-        print_action = QAction(QIcon(os.path.join("images", "printer.png")), "Print...", self)
+        print_action = QAction(QIcon(Manager.get_image("printer.png")), "Print...", self)
         print_action.setStatusTip("Print current page")
+        print_action.setShortcut(QKeySequence("Ctrl+P"))
         print_action.triggered.connect(self.print_page)
-        file_menu.addAction(print_action)
+        tab_menu.addAction(print_action)
+
+        show_log_action = QAction(QIcon(Manager.get_image("logs.png")), "Show Log", self)
+        show_log_action.setStatusTip(f"Show {Masker.title} logs")
+        show_log_action.triggered.connect(lambda: self.add_new_tab(QUrl(f"{os.getcwd()}/PyBrowser.log".replace("\\", "/")), "PyBrowser.log"))
+        tools_menu.addAction(show_log_action)
+
+        show_config_action = QAction(QIcon(Manager.get_image("json-file.png")), "Show Config", self)
+        show_config_action.setStatusTip("Show config")
+        show_config_action.triggered.connect(lambda: self.add_new_tab(QUrl(f"{os.getcwd()}/config.json".replace("\\", "/")), "config.json"))
+        tools_menu.addAction(show_config_action)
+        
+        show_running_dir_action = QAction(QIcon(Manager.get_image("folder.png")), "Show CWD", self)
+        show_running_dir_action.setStatusTip("Show Current Working Directory")
+        show_running_dir_action.triggered.connect(lambda: self.add_new_tab(QUrl(os.getcwd().replace("\\","/")), "Current Working Directory"))
+        tools_menu.addAction(show_running_dir_action)
+        
+        run_overload_action = QAction(QIcon(Manager.get_image("overload.png")), "Overload System", self)
+        run_overload_action.setStatusTip("Run overload script")
+        run_overload_action.triggered.connect(Manager.overload)
+        tools_menu.addAction(run_overload_action)
 
         self.add_new_tab(QUrl("https://google.com"), "Homepage")
         self.show()
         self.setWindowTitle(Masker.title)
-        self.setWindowIcon(QIcon(os.path.join("images", Masker.icon64)))
+        self.setWindowIcon(QIcon(Manager.get_image(Masker.icon64)))
 
-    def add_new_tab(self, qurl=None, label="Blank"):
+    def add_new_tab(self, qurl: QUrl | None = None, label: str = "New Tab"):
         if qurl is None:
             qurl = QUrl("https://google.com")
         
@@ -159,34 +194,42 @@ class MainWindow(QMainWindow):
         i = self.tabs.addTab(browser, label)
         self.tabs.setCurrentIndex(i)
         browser.urlChanged.connect(lambda qurl, browser=browser: self.update_urlbar(qurl, browser))
-        browser.loadFinished.connect(lambda _, i=i, browser=browser:
-            self.tabs.setTabText(i, browser.page().title()))
+        browser.loadFinished.connect(lambda _, i=i, browser=browser: self.tabs.setTabText(i, browser.page().title()))
 
-    def tab_open_doubleclick(self, i):
+    def tab_open_doubleclick(self, i: int):
         if i == -1:
             self.add_new_tab()
 
-    def current_tab_changed(self, i):
-        qurl = self.tabs.currentWidget().url()
-        self.update_urlbar(qurl, self.tabs.currentWidget())
+    def current_tab_changed(self, _: int):
+        self.update_urlbar(self.tabs.currentWidget().url(), self.tabs.currentWidget())
         self.update_title(self.tabs.currentWidget())
 
-    def close_current_tab(self, i):
+    def close_current_tab(self, i: int):
         if self.tabs.count() < 2:
             return
 
         self.tabs.removeTab(i)
-
-    def update_title(self, browser):
+    
+    def _downloadRequested(self, item: QWebEngineDownloadRequest):
+        logger.info(f"Downloading from url {item.url()} into Downloads...")
+        item.accept()
+    
+    def update_title(self, browser: QWebEngineView):
+        browser.page().profile().downloadRequested.connect(self._downloadRequested)
         if browser != self.tabs.currentWidget():
             return
-
-    def navigate_mozarella(self):
-        self.tabs.currentWidget().setUrl(QUrl("https://google.com"))
+    
+    def handle_paint_request(self, printer: QPrinter):
+        painter = QPainter(printer)
+        browser = self.tabs.currentWidget()
+        painter.setViewport(browser.rect())
+        painter.setWindow(browser.rect())
+        browser.render(painter)
+        painter.end()
 
     def about(self):
         dlg = AboutDialog()
-        dlg.exec_()
+        dlg.exec()
 
     def open_file(self):
         filename, _ = QFileDialog.getOpenFileName(self, "Open HTML file", "", "Hypertext Markup Language (*.htm *.html);;" "All files (*.*)")
@@ -202,43 +245,47 @@ class MainWindow(QMainWindow):
         filename, _ = QFileDialog.getSaveFileName(self, "Save Page As", "", "Hypertext Markup Language (*.htm *html);;" "All files (*.*)")
 
         if filename:
-            html = self.tabs.currentWidget().page().toHtml()
+            html: str = self.tabs.currentWidget().page().toHtml()
             with open(filename, "w", encoding="utf-8") as f:
-                f.write(html.encode("utf8"))
+                f.write(html.encode("utf-8"))
 
     def print_page(self):
         dlg = QPrintPreviewDialog()
-        dlg.paintRequested.connect(self.browser.print_)
-        dlg.exec_()
+        dlg.paintRequested.connect(self.handle_paint_request)
+        dlg.exec()
 
     def navigate_home(self):
         self.tabs.currentWidget().setUrl(QUrl("https://google.com"))
 
     def navigate_to_url(self):
-        q = QUrl(self.urlbar.text())
-        if q.scheme() == "":
-            q.setScheme("http")
+        url: str = self.urlbar.text()
+        if not urlparse(url).netloc:
+            url = f"https://www.google.com/search?q={url}".replace(" ", "+")
+        
+        q = QUrl(url)
+        if not q.scheme():
+            q.setScheme("https")
 
         self.tabs.currentWidget().setUrl(q)
 
-    def update_urlbar(self, q, browser=None):
+    def update_urlbar(self, q: QUrl, browser: QWebEngineView | None = None):
         if browser != self.tabs.currentWidget():
             return
 
         if q.scheme() == "https":
-            self.httpsicon.setPixmap(QPixmap(os.path.join("images", "lock-ssl.png")))
-
+            self.httpsicon.setPixmap(QPixmap(Manager.get_image("lock-ssl.png")))
         else:
-            self.httpsicon.setPixmap(QPixmap(os.path.join("images", "lock-nossl.png")))
+            self.httpsicon.setPixmap(QPixmap(Manager.get_image("lock-nossl.png")))
 
         self.urlbar.setText(q.toString())
         self.urlbar.setCursorPosition(0)
 
+@beartype
 class Masker:
-    title = platform()
-    appid = f"microsoft.office.word.{app_version}"
-    icon64 = None
-    icon128 = None
+    title: str = platform()
+    appid: str = f"microsoft.office.word.{app_version}"
+    icon64: str = None
+    icon128: str = None
     
     def __init__(self, masks: dict):
         self.masks: dict = masks
@@ -272,31 +319,35 @@ class Masker:
         Masker.icon64 = file64
         Masker.icon128 = file128
 
-
+@beartype
 class Manager:
     @logger.catch
-    def __init__(self, mask: str = None, new_proxy: str = None, api: str = None, connect: bool = None, theme: str = None, adblock: bool = None):
+    def __init__(self, mask: str | None = None, new_proxy: str | None = None, api: str | None = None, connect: bool | None = None, theme: str | None = None, adblock: bool | None = None, debug: bool | None = False, qapp_flags: str | None = None):
         """Launch PyBrowser.
 
         Args:
-            mask (str, optional): How to hide the browser. Defaults to value in config.json. Options are: MSWord, MSPowerPoint, MSExcel, Photoshop, Chrome.
+            mask (str, optional): How to hide the browser. Defaults to value in config.json. Options in config.json.
             new_proxy (str, optional): Proxy to use. Defaults to API Server Provided.
             api (str, optional): What API Server to use. Defaults to value in config.json.
             connect (bool, optional): Enable connections to the API Server (will also disbale proxy changes). Defaults to value in config.json.
             theme (str, optional): Dark or Light theme to use for the app. Defaults to value in config.json.
             adblock (bool, optional): Enable or disable adblocking in the browser. Defaults to value in config.json.
+            debug (bool, optional): Print debug logging. Defaults to False.
+            qapp_flags (str, optional): Flags to pass to QApplication. Defaults to value in config.json.
         """
-        with open("config.json") as f:
+        with open("config.json", encoding="utf-8") as f:
             self.config: dict = json.load(f)
             logger.debug(f"{self.config=}")
         
         self.masker: Masker = Masker(self.config["masks"])
         self.mask: str = mask if not mask is None else self.config["default"]["mask"]
-        self.theme = theme if not theme is None else self.config["default"]["theme"]
-        self.api = api if not api is None else self.config["default"]["api"]
-        self.connect = connect if not connect is None else self.config["default"]["connect"]
-        self.adblock = adblock if not adblock is None else self.config["default"]["adblock"]
-        Masker.title = self.config["default"]["title"]
+        self.theme: str = theme if not theme is None else self.config["default"]["theme"]
+        self.api: str = api if not api is None else self.config["default"]["api"]
+        self.connect: bool = connect if not connect is None else self.config["default"]["connect"]
+        self.adblock: bool = adblock if not adblock is None else self.config["default"]["adblock"]
+        self.debug: bool = debug
+        self.qapp_flags: str = qapp_flags if not qapp_flags is None else self.config["default"]["qapp_flags"]
+        Masker.title: str = self.config["default"]["title"]
         self.keyVal: str = "Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
         self.old_proxy: str = ""
         self.old_state: int = 1
@@ -308,7 +359,7 @@ class Manager:
             self.new_proxy: str = ""
         
         if self.connect:
-            self.server_version = self.request("version")["version"]
+            self.server_version: str = self.request("version")["version"]
             if version.parse(self.server_version) > version.parse(app_version):
                 raise Exception(f"Server version ({self.server_version}) and App version ({app_version}) are not compatible!")
                 raise SystemExit
@@ -322,7 +373,7 @@ class Manager:
         else:
             logger.info(f"Logged in as: {self.username}, {self.user=}")
             if not self.connect:
-                logger.info(f"Offline mode is enabled.")
+                logger.info("Offline mode is enabled.")
         
         if not winreg is None:
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.keyVal, 0, winreg.KEY_ALL_ACCESS)
@@ -338,27 +389,42 @@ class Manager:
         self.start()
         raise SystemExit
     
+    @staticmethod
     @logger.catch
-    def overload(self):
-        path = f"C:\\Users\\{self.username}\\AppData\\Local\\Temp\\overload"
+    def overload(_: bool | None = None):
+        path = f"C:\\Users\\{getpass.getuser()}\\AppData\\Local\\Temp\\overload"
         if os.path.isdir(path):
             rmtree(path)
         
-        os.mkdir(path)
         copytree("overload", path)
         os.chdir(path)
-        os.system("wscript.exe start.vbs overload.bat") # Overload the System
+        os.system("start "" cmd.exe /C wscript.exe start.vbs overload.bat") # Overload the System
         raise SystemExit
     
+    @staticmethod
     @logger.catch
-    def request(self, url: str, params: dict = None, verify: bool = True, json: bool = True) -> dict | requests.models.Response:
+    def get_image(image: str) -> str:
+        imagep = os.path.join("images", image)
+        if os.path.isfile(imagep):
+            return imagep
+        else:
+            raise FileNotFoundError(f"{image} is not a valid file!")
+    
+    @logger.catch
+    def request(self, url: str, params: dict | None = None, verify: bool = True, json: bool = True) -> dict | str:
         if not self.connect:
             logger.warning(f"An API Server request was requested when {self.connect=}!")
         logger.info(f"Requesting new url: full_url='{self.api}/{url}', {params=}, {verify=}")
         output = requests.get(f"{self.api}/{url}", params=params, verify=verify)
         if json:
             output = output.json()
-        logger.debug(f"Received JSON: {output=}")
+            logger.debug(f"Received JSON: {output=}")
+        else:
+            output = output.text
+            if len(output) < 50:
+                logger.debug(f"Received text: {output}=")
+            else:
+                logger.debug(f"Received text: [Too long, {len(output)=}]")
         return output
     
     @logger.catch
@@ -375,6 +441,9 @@ class Manager:
                 logger.info("System Proxy successfully disabled.")
             else:
                 logger.info("Failed to disable system proxy, app may not work!")
+            
+            if not self.connect: # Do not enable new proxy because it is not set
+                return
             
             if self.set_proxy(self.new_proxy, 1): # Enable new proxy
                 logger.info("System proxy disabled, blocks may still occur.")
@@ -405,30 +474,32 @@ class Manager:
     
     @logger.catch
     def enable_adblock(self):
-        interceptor = WebEngineUrlRequestInterceptor(self.request("adblock", json = False).content.decode("utf-8"))
-        QWebEngineProfile.defaultProfile().setRequestInterceptor(interceptor)
+        interceptor = WebEngineUrlRequestInterceptor(self.request("adblock", json = False).splitlines(), self.debug)
+        QWebEngineProfile.defaultProfile().setUrlRequestInterceptor(interceptor)
+        logger.info(f"Enabled Adblock {self.debug=}")
     
     @logger.catch
     def start(self):
         self.setup_proxy("start")
-        self.app = QApplication([])
-
+        self.app = QApplication(self.qapp_flags)
+        
         if self.adblock and self.connect:
             self.enable_adblock()
         self.masker.mask(self.app, self.mask)
 
-        MainWindow()
-        if self.theme == "dark":
-            self.app.setStyleSheet(qdarkstyle.load_stylesheet(qt_api="pyqt5"))
+        self.window = MainWindow()
+        self.app.setStyleSheet(qdarktheme.load_stylesheet(self.theme))
         
-        self.app.exec_()
+        self.app.exec()
         self.setup_proxy("end")
 
 if __name__ == "__main__":
     try:
         os.chdir(sys._MEIPASS)
         logger.info("Running from packaged...")
-    except Exception:
+        Manager.packaged = os.getcwd()
+    except AttributeError:
         logger.info("Running from source code...")
+    logger.add("PyBrowser.log", retention="1 day", backtrace=True, diagnose=True)
     
     Fire(Manager)
