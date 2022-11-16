@@ -43,7 +43,7 @@
         "api": "https://api.chattingapp.repl.co/pyb",
         "connect": true,
         "adblock": true,
-        "qapp_flags": []
+        "qapp_flags": ["--enable-logging --log-level=3"]
     },
     "info": {
         "version": "1.0.0a",

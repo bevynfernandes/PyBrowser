@@ -54,7 +54,7 @@ data = {
         "api": "https://api.chattingapp.repl.co/pyb",
         "connect": True,
         "adblock": True,
-        "qapp_flags": [],
+        "qapp_flags": ["--enable-logging --log-level=3"],
     },
 }
 
