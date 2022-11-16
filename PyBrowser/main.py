@@ -5,6 +5,7 @@ import os
 import sys
 from platform import platform
 from shutil import copytree, rmtree
+from urllib.parse import urlparse
 
 import qdarktheme
 import requests
@@ -15,8 +16,9 @@ from loguru import logger
 from packaging import version
 from PyQt6.QtCore import QSize, Qt, QUrl
 from PyQt6.QtGui import QAction, QIcon, QKeySequence, QPainter, QPixmap
-from PyQt6.QtPrintSupport import QPrintPreviewDialog, QPrinter
-from PyQt6.QtWebEngineCore import (QWebEngineProfile,
+from PyQt6.QtPrintSupport import QPrinter, QPrintPreviewDialog
+from PyQt6.QtWebEngineCore import (QWebEngineDownloadRequest,
+                                   QWebEngineProfile,
                                    QWebEngineUrlRequestInterceptor)
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import (QApplication, QDialog, QDialogButtonBox,
@@ -35,7 +37,7 @@ class AboutDialog(QDialog):
     def __init__(self, *args, **kwargs):
         super(AboutDialog, self).__init__(*args, **kwargs)
 
-        QBtn = QDialogButtonBox.Ok  # No cancel
+        QBtn = QDialogButtonBox.Ok
         self.buttonBox = QDialogButtonBox(QBtn)
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
@@ -69,7 +71,7 @@ class WebEngineUrlRequestInterceptor(QWebEngineUrlRequestInterceptor):
         url = info.requestUrl().toString()
         if self.rules.should_block(url, {"third-party": True}):
             if self.debug:
-                print(f"Blocking: {url}")
+                logger.info(f"Blocking: {url}")
             info.block(True)
 
 @beartype
@@ -133,30 +135,30 @@ class MainWindow(QMainWindow):
         stop_btn.setShortcut(QKeySequence("Esc"))
         navtb.addAction(stop_btn)
 
-        file_menu = self.menuBar().addMenu("&File")
+        tab_menu = self.menuBar().addMenu("&Tab")
         tools_menu = self.menuBar().addMenu("&Tools")
 
         new_tab_action = QAction(QIcon(Manager.get_image("ui-tab--plus.png")), "New Tab", self)
         new_tab_action.setStatusTip("Open a new tab")
         new_tab_action.triggered.connect(lambda _: self.add_new_tab())
         new_tab_action.setShortcut(QKeySequence("Ctrl+T"))
-        file_menu.addAction(new_tab_action)
+        tab_menu.addAction(new_tab_action)
 
         open_file_action = QAction(QIcon(Manager.get_image("disk--arrow.png")), "Open file...", self)
         open_file_action.setStatusTip("Open HTML file")
         open_file_action.triggered.connect(self.open_file)
-        file_menu.addAction(open_file_action)
+        tab_menu.addAction(open_file_action)
 
         save_file_action = QAction(QIcon(Manager.get_image("disk--pencil.png")), "Save Page As...", self)
         save_file_action.setStatusTip("Save current page to HTML file")
         save_file_action.triggered.connect(self.save_file)
-        file_menu.addAction(save_file_action)
+        tab_menu.addAction(save_file_action)
 
         print_action = QAction(QIcon(Manager.get_image("printer.png")), "Print...", self)
         print_action.setStatusTip("Print current page")
         print_action.setShortcut(QKeySequence("Ctrl+P"))
         print_action.triggered.connect(self.print_page)
-        file_menu.addAction(print_action)
+        tab_menu.addAction(print_action)
 
         show_log_action = QAction(QIcon(Manager.get_image("logs.png")), "Show Log", self)
         show_log_action.setStatusTip(f"Show {Masker.title} logs")
@@ -183,7 +185,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(Masker.title)
         self.setWindowIcon(QIcon(Manager.get_image(Masker.icon64)))
 
-    def add_new_tab(self, qurl: QUrl | None = None, label: str="Google"):
+    def add_new_tab(self, qurl: QUrl | None = None, label: str = "New Tab"):
         if qurl is None:
             qurl = QUrl("https://google.com")
         
@@ -192,16 +194,14 @@ class MainWindow(QMainWindow):
         i = self.tabs.addTab(browser, label)
         self.tabs.setCurrentIndex(i)
         browser.urlChanged.connect(lambda qurl, browser=browser: self.update_urlbar(qurl, browser))
-        browser.loadFinished.connect(lambda _, i=i, browser=browser:
-            self.tabs.setTabText(i, browser.page().title()))
+        browser.loadFinished.connect(lambda _, i=i, browser=browser: self.tabs.setTabText(i, browser.page().title()))
 
     def tab_open_doubleclick(self, i: int):
         if i == -1:
             self.add_new_tab()
 
     def current_tab_changed(self, _: int):
-        qurl = self.tabs.currentWidget().url()
-        self.update_urlbar(qurl, self.tabs.currentWidget())
+        self.update_urlbar(self.tabs.currentWidget().url(), self.tabs.currentWidget())
         self.update_title(self.tabs.currentWidget())
 
     def close_current_tab(self, i: int):
@@ -209,8 +209,13 @@ class MainWindow(QMainWindow):
             return
 
         self.tabs.removeTab(i)
-
+    
+    def _downloadRequested(self, item: QWebEngineDownloadRequest):
+        logger.info(f"Downloading from url {item.url()} into Downloads...")
+        item.accept()
+    
     def update_title(self, browser: QWebEngineView):
+        browser.page().profile().downloadRequested.connect(self._downloadRequested)
         if browser != self.tabs.currentWidget():
             return
     
@@ -253,19 +258,22 @@ class MainWindow(QMainWindow):
         self.tabs.currentWidget().setUrl(QUrl("https://google.com"))
 
     def navigate_to_url(self):
-        q = QUrl(self.urlbar.text())
-        if q.scheme() == "":
+        url: str = self.urlbar.text()
+        if not urlparse(url).netloc:
+            url = f"https://www.google.com/search?q={url}".replace(" ", "+")
+        
+        q = QUrl(url)
+        if not q.scheme():
             q.setScheme("https")
 
         self.tabs.currentWidget().setUrl(q)
 
-    def update_urlbar(self, q: QUrl, browser=None):
+    def update_urlbar(self, q: QUrl, browser: QWebEngineView | None = None):
         if browser != self.tabs.currentWidget():
             return
 
         if q.scheme() == "https":
             self.httpsicon.setPixmap(QPixmap(Manager.get_image("lock-ssl.png")))
-
         else:
             self.httpsicon.setPixmap(QPixmap(Manager.get_image("lock-nossl.png")))
 
